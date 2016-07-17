@@ -19,7 +19,7 @@ if you webserver is not already pointing to Directory where files are located, y
 
 then open you browser and navigate to `http://localhost:8080`
 
-**Web interface will also generate, class usage documentation**
+**Web interface will also generate class usage documentation**
 
 
 ----------
