@@ -1,0 +1,50 @@
+body{
+	padding-top:50px
+}
+code{
+	margin: 3px 5px;
+}
+.error-danger {
+	border-left-color: #d9534f !important;
+}
+.error {
+	padding: 20px;
+	margin: 20px 0;
+	border: 1px solid #eee;
+	border-left-width: 5px;
+	border-radius: 3px;
+	background-color: #fff;
+	color:#000;
+
+}
+.error-danger h4 {
+	color: #d9534f;
+	margin-top: 0;
+	margin-bottom: 5px;
+}
+
+.list-group-item {
+	background-color: #fff;
+	border: 1px solid rgba(145, 145, 145, 1);
+}
+.tab-pane{
+	padding-top: 30px;
+}
+
+.tab-pane .tab-pane{
+	padding-top:0;
+}
+.black{
+	color:#000;
+}
+.red{
+	color:red;
+}
+.prettyprint{
+	margin: 4px 0; 
+}
+
+@media print {
+  .printReady > .tab-pane {display: block !important; opacity: 1 !important;}
+  .nav, .print_button{display: none}
+}
