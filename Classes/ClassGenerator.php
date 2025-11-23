@@ -1,47 +1,48 @@
 <?php
+declare(strict_types=1);
+
 // Require Database Class
 require_once ("Database.php");
 
 class ClassGenerator {
 	/**
 	 * holds database connection
-	 * @var object
+	 * @var Database
 	 */
-	protected $db;
+	protected Database $db;
 
 	/**
 	 * holds selected table
 	 * @var string
 	 */
-	protected $table;
+	protected string $table = '';
 
 	/**
 	 * holds column names
 	 * @var array
 	 */
-	protected $columns;
+	protected array $columns = [];
 
 	/**
 	 * holds primary key column
-	 * @var [type]
+	 * @var string
 	 */
-	protected $primaryKey;
+	protected string $primaryKey = '';
 
 	/**
 	 * holds foreign key relationships
 	 * @var array
 	 */
-	protected $relationships = array();
+	protected array $relationships = [];
 
 	/**
 	 * Directory to write generated class
 	 * @var string
 	 */
-	protected $directoryForGeneratedClasses = "GeneratedClasses";
+	protected string $directoryForGeneratedClasses = "GeneratedClasses";
 
 	/**
 	 * Start new database class
-	 * @return object
 	 */
 	public function __construct() {
 		$this->db = new Database();
@@ -49,9 +50,9 @@ class ClassGenerator {
 
 	/**
 	 * Checks if request is via CLI or WEB
-	 * @return boolean
+	 * @return bool
 	 */
-	public function isCommandLineInterface() {
+	public function isCommandLineInterface(): bool {
 		return (php_sapi_name() === 'cli');
 	}
 
@@ -59,24 +60,24 @@ class ClassGenerator {
 	 * list all tables
 	 * @return array
 	 */
-	public function getTables() {
-		$sql        = "SHOW TABLES";
-		$tables     = $this->db->query($sql);
-		$c          = 0;
-		$tableArray = array();
-		foreach ($tables as $table):
-			foreach ($table as $tableName):
+	public function getTables(): array {
+		$sql = "SHOW TABLES";
+		$tables = $this->db->query($sql);
+		$c = 0;
+		$tableArray = [];
+		foreach ($tables as $table) {
+			foreach ($table as $tableName) {
 				$tableArray[$c]['tableName'] = $tableName;
-				$sql                         = "SHOW COLUMNS FROM " . $tableName;
-				$columns                     = $this->db->query($sql);
-				foreach ($columns as $k => $column):
-					if ($column['Key'] == 'PRI'):
+				$sql = "SHOW COLUMNS FROM " . $tableName;
+				$columns = $this->db->query($sql);
+				foreach ($columns as $k => $column) {
+					if ($column['Key'] == 'PRI') {
 						$tableArray[$c]['primaryKey'] = $column['Field'];
-					endif;
-				endforeach;
+					}
+				}
 				$c++;
-			endforeach;
-		endforeach;
+			}
+		}
 		return $tableArray;
 	}
 
@@ -85,7 +86,7 @@ class ClassGenerator {
 	 * @param string $table
 	 * @return  void
 	 */
-	public function setTable($table) {
+	public function setTable(string $table): void {
 		$this->table = $table;
 		$this->setColumns();
 	}
@@ -94,16 +95,16 @@ class ClassGenerator {
 	 * Sets table columns to object
 	 * @return void
 	 */
-	private function setColumns() {
-		$sql     = "SHOW COLUMNS FROM " . $this->table;
+	private function setColumns(): void {
+		$sql = "SHOW COLUMNS FROM " . $this->table;
 		$columns = $this->db->query($sql);
-		foreach ($columns as $k => $column):
-			if ($column['Key'] == 'PRI'):
+		foreach ($columns as $k => $column) {
+			if ($column['Key'] == 'PRI') {
 				$this->primaryKey = $column['Field'];
-			else:
+			} else {
 				$this->columns[] = $column['Field'];
-			endif;
-		endforeach;
+			}
+		}
 		$this->setRelationships();
 	}
 
@@ -111,7 +112,7 @@ class ClassGenerator {
 	 * Detects and sets foreign key relationships
 	 * @return void
 	 */
-	private function setRelationships() {
+	private function setRelationships(): void {
 		// Detect belongsTo relationships (foreign keys in current table)
 		$this->detectBelongsTo();
 		// Detect hasMany relationships (foreign keys in other tables pointing to this one)
@@ -122,7 +123,7 @@ class ClassGenerator {
 	 * Detects belongsTo relationships (foreign keys in current table)
 	 * @return void
 	 */
-	private function detectBelongsTo() {
+	private function detectBelongsTo(): void {
 		$sql = "SELECT
 				COLUMN_NAME,
 				REFERENCED_TABLE_NAME,
@@ -134,22 +135,22 @@ class ClassGenerator {
 
 		$foreignKeys = $this->db->query($sql);
 
-		foreach ($foreignKeys as $fk):
-			$this->relationships[] = array(
+		foreach ($foreignKeys as $fk) {
+			$this->relationships[] = [
 				'type' => 'belongsTo',
 				'foreignKey' => $fk['COLUMN_NAME'],
 				'relatedTable' => $fk['REFERENCED_TABLE_NAME'],
 				'relatedKey' => $fk['REFERENCED_COLUMN_NAME'],
 				'methodName' => $this->generateMethodName($fk['REFERENCED_TABLE_NAME'], 'belongsTo')
-			);
-		endforeach;
+			];
+		}
 	}
 
 	/**
 	 * Detects hasMany relationships (foreign keys in other tables)
 	 * @return void
 	 */
-	private function detectHasMany() {
+	private function detectHasMany(): void {
 		$sql = "SELECT
 				TABLE_NAME,
 				COLUMN_NAME,
@@ -160,15 +161,15 @@ class ClassGenerator {
 
 		$foreignKeys = $this->db->query($sql);
 
-		foreach ($foreignKeys as $fk):
-			$this->relationships[] = array(
+		foreach ($foreignKeys as $fk) {
+			$this->relationships[] = [
 				'type' => 'hasMany',
 				'foreignKey' => $fk['COLUMN_NAME'],
 				'relatedTable' => $fk['TABLE_NAME'],
 				'relatedKey' => $fk['REFERENCED_COLUMN_NAME'],
 				'methodName' => $this->generateMethodName($fk['TABLE_NAME'], 'hasMany')
-			);
-		endforeach;
+			];
+		}
 	}
 
 	/**
@@ -177,21 +178,21 @@ class ClassGenerator {
 	 * @param string $type
 	 * @return string
 	 */
-	private function generateMethodName($tableName, $type) {
+	private function generateMethodName(string $tableName, string $type): string {
 		// Convert table name to singular for belongsTo, keep plural for hasMany
-		if ($type === 'belongsTo'):
+		if ($type === 'belongsTo') {
 			// Simple singularization (can be improved)
-			if (substr($tableName, -3) === 'ies'):
+			if (substr($tableName, -3) === 'ies') {
 				$methodName = substr($tableName, 0, -3) . 'y';
-			elseif (substr($tableName, -1) === 's'):
+			} elseif (substr($tableName, -1) === 's') {
 				$methodName = substr($tableName, 0, -1);
-			else:
+			} else {
 				$methodName = $tableName;
-			endif;
-		else:
+			}
+		} else {
 			// Keep plural for hasMany
 			$methodName = $tableName;
-		endif;
+		}
 
 		return $methodName;
 	}
@@ -200,26 +201,26 @@ class ClassGenerator {
 	 * Gets relationship information for display
 	 * @return string
 	 */
-	public function getRelationshipInfo() {
-		if (empty($this->relationships)):
+	public function getRelationshipInfo(): string {
+		if (empty($this->relationships)) {
 			return "";
-		endif;
+		}
 
 		$info = "";
 		if ($this->isCommandLineInterface()) {
 			$info .= "\nDetected Relationships:\n";
-			foreach ($this->relationships as $relation):
+			foreach ($this->relationships as $relation) {
 				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
 				$info .= "  - " . $type . ": " . $relation['methodName'] . "() -> " . $relation['relatedTable'] . "\n";
-			endforeach;
+			}
 		} else {
 			$info .= "<div class='alert alert-info' role='alert'><i class='fa fa-link'></i> <strong>Detected Relationships:</strong><ul>";
-			foreach ($this->relationships as $relation):
+			foreach ($this->relationships as $relation) {
 				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
 				$info .= "<li>" . $type . ": <code>" . $relation['methodName'] . "()</code> → " . $relation['relatedTable'] . "</li>";
-			endforeach;
+			}
 			$info .= "</ul></div>";
-		endif;
+		}
 		return $info;
 	}
 
@@ -228,32 +229,33 @@ class ClassGenerator {
 	 * @param  string $string generated class
 	 * @return string
 	 */
-	public function writeClass($string) {
-		$result                 = "";
+	public function writeClass(string $string): string {
+		$result = "";
 		$directoryToCreateClass = realpath(dirname(__FILE__) . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR;
-		if (!is_writable($directoryToCreateClass)):
+		if (!is_writable($directoryToCreateClass)) {
 			if ($this->isCommandLineInterface()) {
 				$result .= $directoryToCreateClass . " is not writable. \n";
 			} else {
-			$result .= "<div class='alert alert-danger' role='alert'><i class='fa fa-exclamation-triangle'></i> <strong>" . $directoryToCreateClass . "</strong> is not writable</div><br />";
+				$result .= "<div class='alert alert-danger' role='alert'><i class='fa fa-exclamation-triangle'></i> <strong>" . $directoryToCreateClass . "</strong> is not writable</div><br />";
+			}
 		}
-		endif;
 		$file = $directoryToCreateClass . $this->table . '.php';
-		if (@file_put_contents($file, $string, LOCK_EX)):
+		if (@file_put_contents($file, $string, LOCK_EX)) {
 			if ($this->isCommandLineInterface()) {
 				$result .= "Class file with filname: " . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR . $this->table . '.php' . " has been Generated Sucessfully\n";
 				$result .= $this->getRelationshipInfo();
 			} else {
-			$result .= "<div class='alert alert-success' role='alert'> <i class='fa fa-check-square'></i> Class file with filname: <strong>" . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR . $this->table . '.php' . "</strong> has been Generated Sucessfully</div>";
-			$result .= $this->getRelationshipInfo();
-		} else :
+				$result .= "<div class='alert alert-success' role='alert'> <i class='fa fa-check-square'></i> Class file with filname: <strong>" . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR . $this->table . '.php' . "</strong> has been Generated Sucessfully</div>";
+				$result .= $this->getRelationshipInfo();
+			}
+		} else {
 			if ($this->isCommandLineInterface()) {
 				$result .= $file . " is not writable, \n Sorry, file was not created for you, probably permission issue,\n Please first try: chmod 777 GeneratedClasses";
 			} else {
-			$result = "<div class='alert alert-danger' role='alert'><i class='fa fa-exclamation-triangle'></i> <strong>" . $file . "</strong> is not writable</div><br />";
-			$result .= "Sorry, file was not created for you, probably permission issue, but you can still copy source from 'Generated Code' tab.";
+				$result = "<div class='alert alert-danger' role='alert'><i class='fa fa-exclamation-triangle'></i> <strong>" . $file . "</strong> is not writable</div><br />";
+				$result .= "Sorry, file was not created for you, probably permission issue, but you can still copy source from 'Generated Code' tab.";
+			}
 		}
-		endif;
 		return $result;
 	}
 
@@ -261,10 +263,12 @@ class ClassGenerator {
 	 * Builds the generated class
 	 * @return string
 	 */
-	public function buildClass() {
+	public function buildClass(): string {
 
 		$output = '
 <?php
+declare(strict_types=1);
+
 require_once (realpath(dirname(__FILE__)."/../")."/Classes/Database.php");
 /**
  * Class: ' . $this->table . '
@@ -275,36 +279,35 @@ class ' . $this->table . '{
      * Table Name
      * @var string
      */
-    protected $table = "' . $this->table . '";
+    protected string $table = "' . $this->table . '";
 
     /**
      * primary Key
      * @var string
      */
-    protected $PRI = "' . $this->primaryKey . '";
+    protected string $PRI = "' . $this->primaryKey . '";
 
     /**
      * Holds Database Connection
-     * @var Resourse
+     * @var Database
      */
-    private $db;
+    private Database $db;
 
     /**
      * Select limit
-     * @var mixed
+     * @var int|bool
      */
-    private $limit = false;
+    private int|bool $limit = false;
 
     /**
      * Holds requested variables
-     * @var Array
+     * @var array
      */
-    public $variables = array();
+    public array $variables = [];
 
     /**
-     * Class construct fucntion
+     * Class construct function
      * calls Database class and set DB Object
-     * @return void
      */
     public function __construct() {
         $this->db = new Database();
@@ -312,28 +315,28 @@ class ' . $this->table . '{
 
     /**
      * Magic method to set objects
-     * @param mixed $name  column name
+     * @param string $name  column name
      * @param mixed $value column value
      */
-    public function __set($name, $value) {
-        if (strtolower($name) === strtolower($this->PRI)):
+    public function __set(string $name, mixed $value): void {
+        if (strtolower($name) === strtolower($this->PRI)) {
             $this->variables[$this->PRI] = $value;
-        else:
+        } else {
             $this->variables[$name] = $value;
-        endif;
+        }
     }
 
     /**
      * Magic method to get object
-     * @param  mixed $name column name
+     * @param  string $name column name
      * @return mixed
      */
-    public function __get($name) {
-        if (is_array($this->variables)):
-            if (array_key_exists($name, $this->variables)):
+    public function __get(string $name): mixed {
+        if (is_array($this->variables)) {
+            if (array_key_exists($name, $this->variables)) {
                 return $this->variables[$name];
-            endif;
-        endif;
+            }
+        }
         $trace = debug_backtrace();
         trigger_error("Undefined property via __get(): " . $name . " in " . $trace[0]["file"] . " on line " . $trace[0]["line"], E_USER_NOTICE);
         return null;
@@ -341,19 +344,19 @@ class ' . $this->table . '{
 
     /**
      * Set query limit
-     * @param  string $limit
+     * @param  int|string $limit
      * @return void
      */
-    public function setLimit($limit){
+    public function setLimit(int|string $limit): void {
     	$this->limit = $limit;
     }
 
     /**
      * alias to setLimit
-     * @param string $limit
+     * @param int|string $limit
      * @return void
      */
-    public function limit($limit){
+    public function limit(int|string $limit): void {
         $this->setLimit($limit);
     }
 
@@ -362,47 +365,48 @@ class ' . $this->table . '{
      * method will reset all previous variables
      * @return void
      */
-    public function reset() {
-        $this->variables = array();
+    public function reset(): void {
+        $this->variables = [];
         $this->limit = false;
     }
 
     /**
      * Update method
-     * Updates exsist Record
-     * @param  int $id primary key
-     * @return int
+     * Updates existing Record
+     * @param  int|string $id primary key
+     * @return mixed
      */
-    public function update($id = "0") {
+    public function update(int|string $id = "0"): mixed {
         $this->variables[$this->PRI] = (empty($this->variables[$this->PRI])) ? $id : $this->variables[$this->PRI];
         $fieldsvals = "";
         $columns = array_keys($this->variables);
-        foreach ($columns as $column):
-            if ($column !== $this->PRI):
+        foreach ($columns as $column) {
+            if ($column !== $this->PRI) {
             	$fieldsvals.= $column . " = :" . $column . ",";
-           	endif;
-        endforeach;
+           	}
+        }
         $fieldsvals = substr_replace($fieldsvals, "", -1);
-        if (count($columns) > 1):
+        if (count($columns) > 1) {
             $sql = "UPDATE " . $this->table . " SET " . $fieldsvals . " WHERE " . $this->PRI . "= :" . $this->PRI;
             return $this->db->query($sql, $this->variables);
-        endif;
+        }
+        return null;
     }
 
     /**
      * add method
      * Adds new record to Table
-     * @return  mixed
+     * @return  string|bool
      */
-    public function add() {
+    public function add(): string|bool {
         $bindings = $this->variables;
-        if (!empty($bindings)):
+        if (!empty($bindings)) {
             $fields = array_keys($bindings);
-            $fieldsvals = array(implode(",", $fields), ":" . implode(",:", $fields));
+            $fieldsvals = [implode(",", $fields), ":" . implode(",:", $fields)];
             $sql = "INSERT INTO " . $this->table . " (" . $fieldsvals[0] . ") VALUES (" . $fieldsvals[1] . ")";
-        else:
+        } else {
             return false;
-        endif;
+        }
         $this->db->query($sql, $bindings);
         return $this->db->lastInsertId();
     }
@@ -736,10 +740,10 @@ return new ' . $this->table . '();
 	/**
 	 * Build Documentation
 	 * checks if application is not running in demo mode, returns documentation
-	 * @param  boolean $demo
+	 * @param  bool $demo
 	 * @return string
 	 */
-	public function buildHowToUse($demo = false) {
+	public function buildHowToUse(bool $demo = false): string {
 		$output = '
          <div class="col-md-3">
           <ul class="nav nav-pills nav-stacked">
