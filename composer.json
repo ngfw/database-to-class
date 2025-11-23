@@ -1,0 +1,41 @@
+{
+    "name": "ngfw/database-to-class",
+    "description": "Generate PHP 8.1+ classes from MySQL database tables with automatic relationship detection",
+    "type": "library",
+    "keywords": [
+        "database",
+        "code-generator",
+        "orm",
+        "mysql",
+        "php8",
+        "relationships",
+        "active-record"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "NGFW Contributors",
+            "homepage": "https://github.com/ngfw/database-to-class"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "symfony/console": "^6.0|^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "DatabaseToClass\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "DatabaseToClass\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "generate.php"
+    ],
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
