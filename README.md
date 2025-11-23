@@ -1,5 +1,13 @@
 # Database-to-class
-Generate PHP Class files according to your Database structure
+Generate PHP Class files according to your Database structure with modern PHP 8.1+ syntax
+
+## Requirements
+
+- PHP 8.1 or higher
+- MySQL/MariaDB database
+- PDO extension
+
+## Getting Started
 
 1. Edit `dbconfig.php` to get started.
 2. Make sure `GeneratedClasses` directory is writable
@@ -22,6 +30,14 @@ then open you browser and navigate to `http://localhost:8080`
 **Web interface will also generate class usage documentation**
 
 ## Features
+
+### Modern PHP 8.1+ Syntax
+Generated classes use cutting-edge PHP features:
+- Typed properties for better IDE support and type safety
+- Union types (e.g., `int|string`, `bool|int`)
+- Strict types declaration for compile-time type checking
+- Modern array syntax and null coalescing operators
+- Return type declarations on all methods
 
 ### Automatic Relationship Detection
 The generator automatically detects foreign key relationships and generates methods for easy data access:
