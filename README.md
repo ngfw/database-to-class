@@ -273,8 +273,9 @@ The generator automatically detects foreign key relationships and generates meth
 
 - **BelongsTo Relationships**: When your table has a foreign key to another table
 - **HasMany Relationships**: When other tables have foreign keys pointing to your table
+- **BelongsToMany Relationships**: Many-to-many relationships through junction/pivot tables
 
-#### Example Usage
+#### BelongsTo and HasMany Example
 
 If you have a `posts` table with a `user_id` foreign key to `users` table:
 
@@ -295,6 +296,69 @@ foreach($userData[0] as $key => $value) {
 }
 $posts = $user->posts(10); // Returns up to 10 posts by this user
 ```
+
+#### BelongsToMany (Many-to-Many) Example
+
+The generator automatically detects junction tables and creates many-to-many relationships. For example, with `users`, `roles`, and a `user_roles` junction table:
+
+**Database Structure:**
+```sql
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    name VARCHAR(255)
+);
+
+CREATE TABLE roles (
+    id INT PRIMARY KEY,
+    name VARCHAR(255)
+);
+
+CREATE TABLE user_roles (
+    user_id INT,
+    role_id INT,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (role_id) REFERENCES roles(id)
+);
+```
+
+**Usage:**
+
+```php
+<?php
+$user = include("GeneratedClasses/users.php");
+$role = include("GeneratedClasses/roles.php");
+
+// Load a user
+$userData = $user->get_id(1);
+foreach($userData[0] as $key => $value) {
+    $user->{$key} = $value;
+}
+
+// Get all roles for this user
+$userRoles = $user->roles(); // Returns array of role records
+
+// Attach a role to the user
+$user->attachRoles(2); // Attach role with ID 2
+
+// Detach a role from the user
+$user->detachRoles(2); // Remove role with ID 2
+
+// Sync roles (removes all existing, adds new ones)
+$user->syncRoles([1, 3, 5]); // User will have only roles 1, 3, and 5
+
+// Works both ways - get users for a role
+$roleData = $role->get_id(1);
+foreach($roleData[0] as $key => $value) {
+    $role->{$key} = $value;
+}
+$roleUsers = $role->users(); // Returns array of user records with this role
+```
+
+**Generated Methods:**
+- `roles()` or `users()` - Retrieve related records through junction table
+- `attachRoles($id)` - Add a relationship (prevents duplicates)
+- `detachRoles($id)` - Remove a relationship
+- `syncRoles($ids)` - Replace all relationships with new set
 
 The generated documentation will show all detected relationships and how to use them.
 

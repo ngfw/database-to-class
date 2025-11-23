@@ -181,6 +181,8 @@ class ClassGenerator {
 		$this->detectBelongsTo();
 		// Detect hasMany relationships (foreign keys in other tables pointing to this one)
 		$this->detectHasMany();
+		// Detect belongsToMany relationships (many-to-many through junction tables)
+		$this->detectBelongsToMany();
 	}
 
 	/**
@@ -237,13 +239,71 @@ class ClassGenerator {
 	}
 
 	/**
+	 * Detects belongsToMany relationships (many-to-many through junction tables)
+	 * @return void
+	 */
+	private function detectBelongsToMany(): void {
+		// Find all potential junction tables
+		$sql = "SELECT
+				kcu1.TABLE_NAME as junction_table,
+				kcu1.COLUMN_NAME as foreign_key_1,
+				kcu1.REFERENCED_TABLE_NAME as related_table_1,
+				kcu1.REFERENCED_COLUMN_NAME as related_key_1,
+				kcu2.COLUMN_NAME as foreign_key_2,
+				kcu2.REFERENCED_TABLE_NAME as related_table_2,
+				kcu2.REFERENCED_COLUMN_NAME as related_key_2
+			FROM information_schema.KEY_COLUMN_USAGE kcu1
+			JOIN information_schema.KEY_COLUMN_USAGE kcu2
+				ON kcu1.TABLE_SCHEMA = kcu2.TABLE_SCHEMA
+				AND kcu1.TABLE_NAME = kcu2.TABLE_NAME
+				AND kcu1.COLUMN_NAME < kcu2.COLUMN_NAME
+			WHERE kcu1.TABLE_SCHEMA = DATABASE()
+				AND kcu1.REFERENCED_TABLE_NAME IS NOT NULL
+				AND kcu2.REFERENCED_TABLE_NAME IS NOT NULL
+				AND kcu1.REFERENCED_TABLE_NAME != kcu2.REFERENCED_TABLE_NAME";
+
+		$junctionTables = $this->db->query($sql);
+
+		if (empty($junctionTables)) {
+			return;
+		}
+
+		foreach ($junctionTables as $junction) {
+			// Check if current table is one of the related tables
+			if ($junction['related_table_1'] === $this->table) {
+				// Current table relates to related_table_2 through junction
+				$this->relationships[] = [
+					'type' => 'belongsToMany',
+					'relatedTable' => $junction['related_table_2'],
+					'junctionTable' => $junction['junction_table'],
+					'foreignPivotKey' => $junction['foreign_key_1'], // Key in junction pointing to current table
+					'relatedPivotKey' => $junction['foreign_key_2'], // Key in junction pointing to related table
+					'relatedKey' => $junction['related_key_2'],
+					'methodName' => $this->generateMethodName($junction['related_table_2'], 'belongsToMany')
+				];
+			} elseif ($junction['related_table_2'] === $this->table) {
+				// Current table relates to related_table_1 through junction
+				$this->relationships[] = [
+					'type' => 'belongsToMany',
+					'relatedTable' => $junction['related_table_1'],
+					'junctionTable' => $junction['junction_table'],
+					'foreignPivotKey' => $junction['foreign_key_2'], // Key in junction pointing to current table
+					'relatedPivotKey' => $junction['foreign_key_1'], // Key in junction pointing to related table
+					'relatedKey' => $junction['related_key_1'],
+					'methodName' => $this->generateMethodName($junction['related_table_1'], 'belongsToMany')
+				];
+			}
+		}
+	}
+
+	/**
 	 * Generates a method name for relationship
 	 * @param string $tableName
 	 * @param string $type
 	 * @return string
 	 */
 	private function generateMethodName(string $tableName, string $type): string {
-		// Convert table name to singular for belongsTo, keep plural for hasMany
+		// Convert table name to singular for belongsTo, keep plural for hasMany and belongsToMany
 		if ($type === 'belongsTo') {
 			// Simple singularization (can be improved)
 			if (substr($tableName, -3) === 'ies') {
@@ -254,7 +314,7 @@ class ClassGenerator {
 				$methodName = $tableName;
 			}
 		} else {
-			// Keep plural for hasMany
+			// Keep plural for hasMany and belongsToMany
 			$methodName = $tableName;
 		}
 
@@ -274,14 +334,26 @@ class ClassGenerator {
 		if ($this->isCommandLineInterface()) {
 			$info .= "\nDetected Relationships:\n";
 			foreach ($this->relationships as $relation) {
-				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
-				$info .= "  - " . $type . ": " . $relation['methodName'] . "() -> " . $relation['relatedTable'] . "\n";
+				$type = match($relation['type']) {
+					'belongsTo' => 'BelongsTo',
+					'hasMany' => 'HasMany',
+					'belongsToMany' => 'BelongsToMany',
+					default => ucfirst($relation['type'])
+				};
+				$extra = $relation['type'] === 'belongsToMany' ? " (via " . $relation['junctionTable'] . ")" : "";
+				$info .= "  - " . $type . ": " . $relation['methodName'] . "() -> " . $relation['relatedTable'] . $extra . "\n";
 			}
 		} else {
 			$info .= "<div class='alert alert-info' role='alert'><i class='fa fa-link'></i> <strong>Detected Relationships:</strong><ul>";
 			foreach ($this->relationships as $relation) {
-				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
-				$info .= "<li>" . $type . ": <code>" . $relation['methodName'] . "()</code> → " . $relation['relatedTable'] . "</li>";
+				$type = match($relation['type']) {
+					'belongsTo' => 'BelongsTo',
+					'hasMany' => 'HasMany',
+					'belongsToMany' => 'BelongsToMany',
+					default => ucfirst($relation['type'])
+				};
+				$extra = $relation['type'] === 'belongsToMany' ? " (via <code>" . $relation['junctionTable'] . "</code>)" : "";
+				$info .= "<li>" . $type . ": <code>" . $relation['methodName'] . "()</code> → " . $relation['relatedTable'] . $extra . "</li>";
 			}
 			$info .= "</ul></div>";
 		}
@@ -1104,6 +1176,120 @@ class ' . $this->table . '{
         endif;
 
         return $relatedClass->get_' . $relation['foreignKey'] . '($this->variables["' . $relation['relatedKey'] . '"], $limit);
+    }
+		    ';
+			elseif ($relation['type'] === 'belongsToMany'):
+				$output .= '
+    /**
+     * ' . $relation['methodName'] . '
+     * BelongsToMany relationship - gets related ' . $relation['relatedTable'] . ' records through ' . $relation['junctionTable'] . '
+     * @param  string $limit Query limit
+     * @return mixed
+     */
+    public function ' . $relation['methodName'] . '($limit = "") {
+        if (!isset($this->variables["' . $this->primaryKey . '"]) || empty($this->variables["' . $this->primaryKey . '"])):
+            return false;
+        endif;
+
+        $sql = "SELECT r.* FROM ' . $relation['relatedTable'] . ' r
+                INNER JOIN ' . $relation['junctionTable'] . ' j ON j.' . $relation['relatedPivotKey'] . ' = r.' . $relation['relatedKey'] . '
+                WHERE j.' . $relation['foreignPivotKey'] . ' = :current_id";
+
+        if (!empty($limit)):
+            $sql .= " LIMIT " . $limit;
+        endif;
+
+        return $this->db->query($sql, ["current_id" => $this->variables["' . $this->primaryKey . '"]]);
+    }
+
+    /**
+     * attach' . ucfirst($relation['methodName']) . '
+     * Attach a ' . $relation['relatedTable'] . ' record to this ' . $this->table . ' through ' . $relation['junctionTable'] . '
+     * @param  int|string $relatedId The ID of the ' . $relation['relatedTable'] . ' record to attach
+     * @return bool
+     */
+    public function attach' . ucfirst($relation['methodName']) . '(int|string $relatedId): bool {
+        if (!isset($this->variables["' . $this->primaryKey . '"]) || empty($this->variables["' . $this->primaryKey . '"])):
+            return false;
+        endif;
+
+        // Check if relationship already exists
+        $checkSql = "SELECT COUNT(*) as count FROM ' . $relation['junctionTable'] . '
+                     WHERE ' . $relation['foreignPivotKey'] . ' = :current_id
+                     AND ' . $relation['relatedPivotKey'] . ' = :related_id";
+
+        $exists = $this->db->single($checkSql, [
+            "current_id" => $this->variables["' . $this->primaryKey . '"],
+            "related_id" => $relatedId
+        ]);
+
+        if ($exists > 0):
+            return true; // Already attached
+        endif;
+
+        $sql = "INSERT INTO ' . $relation['junctionTable'] . ' (' . $relation['foreignPivotKey'] . ', ' . $relation['relatedPivotKey'] . ')
+                VALUES (:current_id, :related_id)";
+
+        return (bool) $this->db->query($sql, [
+            "current_id" => $this->variables["' . $this->primaryKey . '"],
+            "related_id" => $relatedId
+        ]);
+    }
+
+    /**
+     * detach' . ucfirst($relation['methodName']) . '
+     * Detach a ' . $relation['relatedTable'] . ' record from this ' . $this->table . '
+     * @param  int|string $relatedId The ID of the ' . $relation['relatedTable'] . ' record to detach
+     * @return bool
+     */
+    public function detach' . ucfirst($relation['methodName']) . '(int|string $relatedId): bool {
+        if (!isset($this->variables["' . $this->primaryKey . '"]) || empty($this->variables["' . $this->primaryKey . '"])):
+            return false;
+        endif;
+
+        $sql = "DELETE FROM ' . $relation['junctionTable'] . '
+                WHERE ' . $relation['foreignPivotKey'] . ' = :current_id
+                AND ' . $relation['relatedPivotKey'] . ' = :related_id";
+
+        return (bool) $this->db->query($sql, [
+            "current_id" => $this->variables["' . $this->primaryKey . '"],
+            "related_id" => $relatedId
+        ]);
+    }
+
+    /**
+     * syncTo' . ucfirst($relation['methodName']) . '
+     * Sync ' . $relation['relatedTable'] . ' relationships - removes all existing and adds new ones
+     * @param  array $relatedIds Array of ' . $relation['relatedTable'] . ' IDs to sync
+     * @return bool
+     */
+    public function sync' . ucfirst($relation['methodName']) . '(array $relatedIds): bool {
+        if (!isset($this->variables["' . $this->primaryKey . '"]) || empty($this->variables["' . $this->primaryKey . '"])):
+            return false;
+        endif;
+
+        // Remove all existing relationships
+        $deleteSql = "DELETE FROM ' . $relation['junctionTable'] . '
+                      WHERE ' . $relation['foreignPivotKey'] . ' = :current_id";
+
+        $this->db->query($deleteSql, ["current_id" => $this->variables["' . $this->primaryKey . '"]]);
+
+        // Add new relationships
+        if (empty($relatedIds)):
+            return true;
+        endif;
+
+        foreach ($relatedIds as $relatedId):
+            $insertSql = "INSERT INTO ' . $relation['junctionTable'] . ' (' . $relation['foreignPivotKey'] . ', ' . $relation['relatedPivotKey'] . ')
+                          VALUES (:current_id, :related_id)";
+
+            $this->db->query($insertSql, [
+                "current_id" => $this->variables["' . $this->primaryKey . '"],
+                "related_id" => $relatedId
+            ]);
+        endforeach;
+
+        return true;
     }
 		    ';
 			endif;
