@@ -81,6 +81,31 @@ Generated classes use cutting-edge PHP features:
 - Modern array syntax and null coalescing operators
 - Return type declarations on all methods
 
+### Automatic Validation
+Generated classes include built-in validation based on your database schema:
+- **Type validation**: Ensures integers are integers, numbers are numeric, etc.
+- **Length validation**: Enforces VARCHAR and CHAR length constraints
+- **Required field validation**: Checks NOT NULL columns
+- **ENUM validation**: Validates against allowed enum values
+- **Easy error handling**: Get detailed validation errors
+
+```php
+$user = include("GeneratedClasses/users.php");
+$user->email = "invalid-email-that-is-way-too-long-for-the-database-column";
+$user->age = "not a number";
+
+if (!$user->validate()) {
+    print_r($user->getValidationErrors());
+    // Array
+    // (
+    //     [email] => Array([0] => email exceeds maximum length of 255)
+    //     [age] => Array([0] => age must be an integer)
+    // )
+} else {
+    $user->add();
+}
+```
+
 ### Automatic Relationship Detection
 The generator automatically detects foreign key relationships and generates methods for easy data access:
 

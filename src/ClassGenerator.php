@@ -23,6 +23,12 @@ class ClassGenerator {
 	protected array $columns = [];
 
 	/**
+	 * holds detailed column metadata for validation
+	 * @var array
+	 */
+	protected array $columnMetadata = [];
+
+	/**
 	 * holds primary key column
 	 * @var string
 	 */
@@ -98,13 +104,72 @@ class ClassGenerator {
 		$sql = "SHOW COLUMNS FROM " . $this->table;
 		$columns = $this->db->query($sql);
 		foreach ($columns as $k => $column) {
+			$columnName = $column['Field'];
+
+			// Parse column metadata
+			$metadata = $this->parseColumnMetadata($column);
+
 			if ($column['Key'] == 'PRI') {
-				$this->primaryKey = $column['Field'];
+				$this->primaryKey = $columnName;
 			} else {
-				$this->columns[] = $column['Field'];
+				$this->columns[] = $columnName;
 			}
+
+			// Store metadata for all columns including primary key
+			$this->columnMetadata[$columnName] = $metadata;
 		}
 		$this->setRelationships();
+	}
+
+	/**
+	 * Parses column metadata for validation
+	 * @param array $column
+	 * @return array
+	 */
+	private function parseColumnMetadata(array $column): array {
+		$type = $column['Type'];
+		$metadata = [
+			'name' => $column['Field'],
+			'type' => $type,
+			'nullable' => ($column['Null'] === 'YES'),
+			'key' => $column['Key'],
+			'default' => $column['Default'],
+			'extra' => $column['Extra'] ?? ''
+		];
+
+		// Parse type and length
+		if (preg_match('/^(\w+)(?:\(([^)]+)\))?/', $type, $matches)) {
+			$metadata['baseType'] = strtolower($matches[1]);
+			$metadata['length'] = $matches[2] ?? null;
+
+			// For ENUM and SET, extract values
+			if (in_array($metadata['baseType'], ['enum', 'set'])) {
+				$metadata['allowedValues'] = str_getcsv($matches[2], ',', "'");
+			}
+		}
+
+		// Determine PHP type for validation
+		$metadata['phpType'] = $this->mapToPhpType($metadata['baseType']);
+
+		return $metadata;
+	}
+
+	/**
+	 * Maps MySQL types to PHP types
+	 * @param string $mysqlType
+	 * @return string
+	 */
+	private function mapToPhpType(string $mysqlType): string {
+		return match($mysqlType) {
+			'tinyint', 'smallint', 'mediumint', 'int', 'bigint' => 'integer',
+			'decimal', 'float', 'double', 'real' => 'float',
+			'char', 'varchar', 'text', 'tinytext', 'mediumtext', 'longtext' => 'string',
+			'date', 'datetime', 'timestamp', 'time', 'year' => 'string',
+			'enum', 'set' => 'string',
+			'json' => 'string',
+			'boolean', 'bool' => 'boolean',
+			default => 'string'
+		};
 	}
 
 	/**
@@ -259,6 +324,102 @@ class ClassGenerator {
 	}
 
 	/**
+	 * Generates validation method based on column metadata
+	 * @return string
+	 */
+	private function generateValidateMethod(): string {
+		$output = '
+    /**
+     * Validate current variables against column constraints
+     * @return bool Returns true if valid, false if validation fails
+     */
+    public function validate(): bool {
+        $this->validationErrors = [];
+';
+
+		// Generate validation for each column
+		foreach ($this->columnMetadata as $colName => $meta) {
+			// Skip primary key if it's auto-increment
+			if ($meta['extra'] === 'auto_increment') {
+				continue;
+			}
+
+			$output .= '
+        // Validate ' . $colName . '
+        if (isset($this->variables["' . $colName . '"])) {
+            $value = $this->variables["' . $colName . '"];
+';
+
+			// Type validation
+			if ($meta['phpType'] === 'integer') {
+				$output .= '            if (!is_numeric($value) || (int)$value != $value) {
+                $this->validationErrors["' . $colName . '"][] = "' . $colName . ' must be an integer";
+            }
+';
+			} elseif ($meta['phpType'] === 'float') {
+				$output .= '            if (!is_numeric($value)) {
+                $this->validationErrors["' . $colName . '"][] = "' . $colName . ' must be a number";
+            }
+';
+			}
+
+			// Length validation for strings
+			if ($meta['phpType'] === 'string' && isset($meta['length']) && is_numeric($meta['length'])) {
+				$output .= '            if (strlen((string)$value) > ' . $meta['length'] . ') {
+                $this->validationErrors["' . $colName . '"][] = "' . $colName . ' exceeds maximum length of ' . $meta['length'] . '";
+            }
+';
+			}
+
+			// ENUM validation
+			if (isset($meta['allowedValues']) && !empty($meta['allowedValues'])) {
+				$allowedValuesStr = "'" . implode("', '", array_map('addslashes', $meta['allowedValues'])) . "'";
+				$output .= '            $allowedValues = [' . $allowedValuesStr . '];
+            if (!in_array($value, $allowedValues)) {
+                $this->validationErrors["' . $colName . '"][] = "' . $colName . ' must be one of: " . implode(", ", $allowedValues);
+            }
+';
+			}
+
+			$output .= '        }';
+
+			// NOT NULL validation
+			if (!$meta['nullable'] && $meta['default'] === null) {
+				$output .= ' else {
+            $this->validationErrors["' . $colName . '"][] = "' . $colName . ' is required";
+        }
+';
+			} else {
+				$output .= '
+';
+			}
+		}
+
+		$output .= '
+        return empty($this->validationErrors);
+    }
+
+    /**
+     * Get validation errors
+     * @return array
+     */
+    public function getValidationErrors(): array {
+        return $this->validationErrors;
+    }
+
+    /**
+     * Check if has validation errors
+     * @return bool
+     */
+    public function hasErrors(): bool {
+        return !empty($this->validationErrors);
+    }
+';
+
+		return $output;
+	}
+
+	/**
 	 * Builds the generated class
 	 * @return string
 	 */
@@ -304,6 +465,12 @@ class ' . $this->table . '{
      * @var array
      */
     public array $variables = [];
+
+    /**
+     * Holds validation errors
+     * @var array
+     */
+    private array $validationErrors = [];
 
     /**
      * Class construct function
@@ -410,7 +577,12 @@ class ' . $this->table . '{
         $this->db->query($sql, $bindings);
         return $this->db->lastInsertId();
     }
+';
 
+		// Generate validation method
+		$output .= $this->generateValidateMethod();
+
+		$output .= '
     /**
      * find method
      * Method performs LIKE search
