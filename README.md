@@ -7,12 +7,54 @@ Generate PHP Class files according to your Database structure with modern PHP 8.
 - MySQL/MariaDB database
 - PDO extension
 
+## Installation
+
+### Via Composer (Recommended)
+
+```sh
+composer require ngfw/database-to-class
+```
+
+### Manual Installation
+
+1. Clone or download this repository
+2. Run `composer install` to generate autoloader
+3. Include the autoloader: `require 'vendor/autoload.php';`
+
 ## Getting Started
 
-1. Edit `dbconfig.php` to get started.
+1. Edit `dbconfig.php` to configure your database connection
 2. Make sure `GeneratedClasses` directory is writable
 ```sh
-\>$ chmod 777 GeneratedClasses
+chmod 777 GeneratedClasses
+```
+
+## Usage
+
+### With Composer Autoloading (Recommended)
+
+```php
+<?php
+require 'vendor/autoload.php';
+
+use DatabaseToClass\ClassGenerator;
+
+$generator = new ClassGenerator();
+$generator->setTable('users');
+$classCode = $generator->buildClass();
+file_put_contents('GeneratedClasses/users.php', $classCode);
+```
+
+### Legacy Method (Backward Compatible)
+
+The `Classes/` directory still works for backward compatibility:
+
+```php
+<?php
+include('Classes/ClassGenerator.php');
+
+$generator = new ClassGenerator();
+// ... rest of your code
 ```
 
 ## Generate classes via cli
