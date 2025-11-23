@@ -28,6 +28,12 @@ class ClassGenerator {
 	protected $primaryKey;
 
 	/**
+	 * holds foreign key relationships
+	 * @var array
+	 */
+	protected $relationships = array();
+
+	/**
 	 * Directory to write generated class
 	 * @var string
 	 */
@@ -98,7 +104,123 @@ class ClassGenerator {
 				$this->columns[] = $column['Field'];
 			endif;
 		endforeach;
+		$this->setRelationships();
+	}
 
+	/**
+	 * Detects and sets foreign key relationships
+	 * @return void
+	 */
+	private function setRelationships() {
+		// Detect belongsTo relationships (foreign keys in current table)
+		$this->detectBelongsTo();
+		// Detect hasMany relationships (foreign keys in other tables pointing to this one)
+		$this->detectHasMany();
+	}
+
+	/**
+	 * Detects belongsTo relationships (foreign keys in current table)
+	 * @return void
+	 */
+	private function detectBelongsTo() {
+		$sql = "SELECT
+				COLUMN_NAME,
+				REFERENCED_TABLE_NAME,
+				REFERENCED_COLUMN_NAME
+			FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = DATABASE()
+				AND TABLE_NAME = '" . $this->table . "'
+				AND REFERENCED_TABLE_NAME IS NOT NULL";
+
+		$foreignKeys = $this->db->query($sql);
+
+		foreach ($foreignKeys as $fk):
+			$this->relationships[] = array(
+				'type' => 'belongsTo',
+				'foreignKey' => $fk['COLUMN_NAME'],
+				'relatedTable' => $fk['REFERENCED_TABLE_NAME'],
+				'relatedKey' => $fk['REFERENCED_COLUMN_NAME'],
+				'methodName' => $this->generateMethodName($fk['REFERENCED_TABLE_NAME'], 'belongsTo')
+			);
+		endforeach;
+	}
+
+	/**
+	 * Detects hasMany relationships (foreign keys in other tables)
+	 * @return void
+	 */
+	private function detectHasMany() {
+		$sql = "SELECT
+				TABLE_NAME,
+				COLUMN_NAME,
+				REFERENCED_COLUMN_NAME
+			FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = DATABASE()
+				AND REFERENCED_TABLE_NAME = '" . $this->table . "'";
+
+		$foreignKeys = $this->db->query($sql);
+
+		foreach ($foreignKeys as $fk):
+			$this->relationships[] = array(
+				'type' => 'hasMany',
+				'foreignKey' => $fk['COLUMN_NAME'],
+				'relatedTable' => $fk['TABLE_NAME'],
+				'relatedKey' => $fk['REFERENCED_COLUMN_NAME'],
+				'methodName' => $this->generateMethodName($fk['TABLE_NAME'], 'hasMany')
+			);
+		endforeach;
+	}
+
+	/**
+	 * Generates a method name for relationship
+	 * @param string $tableName
+	 * @param string $type
+	 * @return string
+	 */
+	private function generateMethodName($tableName, $type) {
+		// Convert table name to singular for belongsTo, keep plural for hasMany
+		if ($type === 'belongsTo'):
+			// Simple singularization (can be improved)
+			if (substr($tableName, -3) === 'ies'):
+				$methodName = substr($tableName, 0, -3) . 'y';
+			elseif (substr($tableName, -1) === 's'):
+				$methodName = substr($tableName, 0, -1);
+			else:
+				$methodName = $tableName;
+			endif;
+		else:
+			// Keep plural for hasMany
+			$methodName = $tableName;
+		endif;
+
+		return $methodName;
+	}
+
+	/**
+	 * Gets relationship information for display
+	 * @return string
+	 */
+	public function getRelationshipInfo() {
+		if (empty($this->relationships)):
+			return "";
+		endif;
+
+		$info = "";
+		if ($this->isCommandLineInterface()) {
+			$info .= "\nDetected Relationships:\n";
+			foreach ($this->relationships as $relation):
+				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
+				$info .= "  - " . $type . ": " . $relation['methodName'] . "() -> " . $relation['relatedTable'] . "\n";
+			endforeach;
+		} else {
+			$info .= "<div class='alert alert-info' role='alert'><i class='fa fa-link'></i> <strong>Detected Relationships:</strong><ul>";
+			foreach ($this->relationships as $relation):
+				$type = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
+				$info .= "<li>" . $type . ": <code>" . $relation['methodName'] . "()</code> → " . $relation['relatedTable'] . "</li>";
+			endforeach;
+			$info .= "</ul></div>";
+		endif;
+		return $info;
 	}
 
 	/**
@@ -120,8 +242,10 @@ class ClassGenerator {
 		if (@file_put_contents($file, $string, LOCK_EX)):
 			if ($this->isCommandLineInterface()) {
 				$result .= "Class file with filname: " . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR . $this->table . '.php' . " has been Generated Sucessfully\n";
+				$result .= $this->getRelationshipInfo();
 			} else {
 			$result .= "<div class='alert alert-success' role='alert'> <i class='fa fa-check-square'></i> Class file with filname: <strong>" . DIRECTORY_SEPARATOR . $this->directoryForGeneratedClasses . DIRECTORY_SEPARATOR . $this->table . '.php' . "</strong> has been Generated Sucessfully</div>";
+			$result .= $this->getRelationshipInfo();
 		} else :
 			if ($this->isCommandLineInterface()) {
 				$result .= $file . " is not writable, \n Sorry, file was not created for you, probably permission issue,\n Please first try: chmod 777 GeneratedClasses";
@@ -365,6 +489,56 @@ class ' . $this->table . '{
     }
 		    ';
 		endforeach;
+
+		// Add relationship methods
+		foreach ($this->relationships as $relation):
+			if ($relation['type'] === 'belongsTo'):
+				$output .= '
+    /**
+     * ' . $relation['methodName'] . '
+     * BelongsTo relationship - gets related ' . $relation['relatedTable'] . ' record
+     * @return mixed
+     */
+    public function ' . $relation['methodName'] . '() {
+        if (!isset($this->variables["' . $relation['foreignKey'] . '"]) || empty($this->variables["' . $relation['foreignKey'] . '"])):
+            return false;
+        endif;
+
+        $relatedClass = include_once(realpath(dirname(__FILE__)."/../' . $this->directoryForGeneratedClasses . '/' . $relation['relatedTable'] . '.php"));
+        if (!$relatedClass):
+            trigger_error("Related class ' . $relation['relatedTable'] . ' not found", E_USER_WARNING);
+            return false;
+        endif;
+
+        $result = $relatedClass->get_' . $relation['relatedKey'] . '($this->variables["' . $relation['foreignKey'] . '"]);
+        return !empty($result) ? $result[0] : false;
+    }
+		    ';
+			elseif ($relation['type'] === 'hasMany'):
+				$output .= '
+    /**
+     * ' . $relation['methodName'] . '
+     * HasMany relationship - gets related ' . $relation['relatedTable'] . ' records
+     * @param  string $limit Query limit
+     * @return mixed
+     */
+    public function ' . $relation['methodName'] . '($limit = "") {
+        if (!isset($this->variables["' . $relation['relatedKey'] . '"]) || empty($this->variables["' . $relation['relatedKey'] . '"])):
+            return false;
+        endif;
+
+        $relatedClass = include_once(realpath(dirname(__FILE__)."/../' . $this->directoryForGeneratedClasses . '/' . $relation['relatedTable'] . '.php"));
+        if (!$relatedClass):
+            trigger_error("Related class ' . $relation['relatedTable'] . ' not found", E_USER_WARNING);
+            return false;
+        endif;
+
+        return $relatedClass->get_' . $relation['foreignKey'] . '($this->variables["' . $relation['relatedKey'] . '"], $limit);
+    }
+		    ';
+			endif;
+		endforeach;
+
 		$output .= '
     /**
      * all
@@ -591,6 +765,14 @@ return new ' . $this->table . '();
 			$output .= '<li><a href="#tab' . $c . '" role="tab" data-toggle="tab">Get Row with ' . $column . '</a></li>';
 			$c++;
 		endforeach;
+
+		// Add relationship tabs
+		foreach ($this->relationships as $relation):
+			$relationType = $relation['type'] === 'belongsTo' ? 'BelongsTo' : 'HasMany';
+			$output .= '<li><a href="#tab' . $c . '" role="tab" data-toggle="tab">' . $relationType . ': ' . $relation['methodName'] . '</a></li>';
+			$c++;
+		endforeach;
+
 		$output .= '
           </ul>
         </div>
@@ -920,6 +1102,71 @@ $result = $' . $this->table . '->get_' . $column . '($' . $column . '_value = "s
 		        </div>';
 				$c++;
 			endforeach;
+
+			// Add relationship documentation
+			foreach ($this->relationships as $relation):
+				if ($relation['type'] === 'belongsTo'):
+					$output .= '<div class="tab-pane " id="tab' . $c . '">
+		                <strong>BelongsTo Relationship:</strong> <code>$' . $this->table . '->' . $relation['methodName'] . '()</code><Br />
+		                This method retrieves the related <strong>' . $relation['relatedTable'] . '</strong> record that this ' . $this->table . ' belongs to.<Br />
+		                <br />
+		                The relationship is based on the foreign key <code>' . $relation['foreignKey'] . '</code> in this table
+		                referencing <code>' . $relation['relatedKey'] . '</code> in the <strong>' . $relation['relatedTable'] . '</strong> table.<br />
+		                <br />
+		                Example usage:<Br />
+		                <pre class="prettyprint">
+
+		// First, get a ' . $this->table . ' record
+		$' . $this->table . 'Record = $' . $this->table . '->get_' . $this->primaryKey . '(1);
+		if ($' . $this->table . 'Record) {
+		    // Load the record into the object
+		    foreach($' . $this->table . 'Record[0] as $key => $value) {
+		        $' . $this->table . '->{$key} = $value;
+		    }
+
+		    // Now get the related ' . $relation['relatedTable'] . ' record
+		    $related = $' . $this->table . '->' . $relation['methodName'] . '();
+		    if ($related) {
+		        echo "Related ' . $relation['relatedTable'] . ': ";
+		        print_r($related);
+		    }
+		}
+		                </pre>
+		        </div>';
+				elseif ($relation['type'] === 'hasMany'):
+					$output .= '<div class="tab-pane " id="tab' . $c . '">
+		                <strong>HasMany Relationship:</strong> <code>$' . $this->table . '->' . $relation['methodName'] . '($limit = "")</code><Br />
+		                This method retrieves all <strong>' . $relation['relatedTable'] . '</strong> records that belong to this ' . $this->table . '.<Br />
+		                <br />
+		                The relationship is based on the foreign key <code>' . $relation['foreignKey'] . '</code> in the <strong>' . $relation['relatedTable'] . '</strong> table
+		                referencing <code>' . $relation['relatedKey'] . '</code> in this table.<br />
+		                <br />
+		                Example usage:<Br />
+		                <pre class="prettyprint">
+
+		// First, get a ' . $this->table . ' record
+		$' . $this->table . 'Record = $' . $this->table . '->get_' . $this->primaryKey . '(1);
+		if ($' . $this->table . 'Record) {
+		    // Load the record into the object
+		    foreach($' . $this->table . 'Record[0] as $key => $value) {
+		        $' . $this->table . '->{$key} = $value;
+		    }
+
+		    // Now get all related ' . $relation['relatedTable'] . ' records
+		    $related = $' . $this->table . '->' . $relation['methodName'] . '(10); // Limit to 10 records
+		    if ($related) {
+		        echo "Related ' . $relation['relatedTable'] . ': ";
+		        foreach($related as $item) {
+		            print_r($item);
+		        }
+		    }
+		}
+		                </pre>
+		        </div>';
+				endif;
+				$c++;
+			endforeach;
+
 		} else {// if demo
 			$output .= '
             <div class="alert alert-warning" role="alert">Application is running in demo mode, Documentation is disabled </div>
