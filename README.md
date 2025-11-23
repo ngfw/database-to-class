@@ -126,6 +126,54 @@ Generated classes use cutting-edge PHP features:
 - Modern array syntax and null coalescing operators
 - Return type declarations on all methods
 
+### Lifecycle Hooks / Events
+Generated classes include lifecycle hooks that allow you to run custom logic before and after CRUD operations:
+
+**Available Hooks:**
+- `beforeValidate()` - Run logic before validation
+- `afterValidate()` - Run logic after successful validation
+- `beforeAdd()` - Modify data or cancel insert (return `false` to cancel)
+- `afterAdd($insertedId)` - Run logic after successful insert
+- `beforeUpdate()` - Modify data or cancel update (return `false` to cancel)
+- `afterUpdate()` - Run logic after successful update
+- `beforeDelete($id)` - Cancel delete operation (return `false` to cancel)
+- `afterDelete($id)` - Run logic after successful delete
+
+**Example - Auto-timestamp:**
+```php
+<?php
+// Extend the generated class
+class User extends users {
+    protected function beforeAdd(): bool {
+        // Auto-set created_at timestamp
+        $this->created_at = date('Y-m-d H:i:s');
+        return true;
+    }
+
+    protected function beforeUpdate(): bool {
+        // Auto-set updated_at timestamp
+        $this->updated_at = date('Y-m-d H:i:s');
+        return true;
+    }
+
+    protected function afterDelete(int|string $id): void {
+        // Log deletion
+        error_log("User {$id} was deleted at " . date('Y-m-d H:i:s'));
+    }
+}
+```
+
+**Example - Prevent deletion:**
+```php
+protected function beforeDelete(int|string $id): bool {
+    // Don't allow deleting admin users
+    if ($this->role === 'admin') {
+        return false; // Cancel the delete
+    }
+    return true;
+}
+```
+
 ### Automatic Validation
 Generated classes include built-in validation based on your database schema:
 - **Type validation**: Ensures integers are integers, numbers are numeric, etc.

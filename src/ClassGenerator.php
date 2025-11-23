@@ -334,6 +334,9 @@ class ClassGenerator {
      * @return bool Returns true if valid, false if validation fails
      */
     public function validate(): bool {
+        // Call beforeValidate hook
+        $this->beforeValidate();
+
         $this->validationErrors = [];
 ';
 
@@ -396,7 +399,14 @@ class ClassGenerator {
 		}
 
 		$output .= '
-        return empty($this->validationErrors);
+        $isValid = empty($this->validationErrors);
+
+        // Call afterValidate hook if validation passed
+        if ($isValid) {
+            $this->afterValidate();
+        }
+
+        return $isValid;
     }
 
     /**
@@ -538,12 +548,103 @@ class ' . $this->table . '{
     }
 
     /**
+     * =============================================================
+     * LIFECYCLE HOOKS - Override these methods for custom logic
+     * =============================================================
+     */
+
+    /**
+     * Called before validation
+     * Override this method to modify data before validation
+     * @return void
+     */
+    protected function beforeValidate(): void {
+        // Override in your class to add custom logic
+    }
+
+    /**
+     * Called after successful validation
+     * @return void
+     */
+    protected function afterValidate(): void {
+        // Override in your class to add custom logic
+    }
+
+    /**
+     * Called before adding a new record
+     * Override this method to modify data or perform checks before insert
+     * @return bool Return false to cancel the insert operation
+     */
+    protected function beforeAdd(): bool {
+        // Override in your class to add custom logic
+        return true;
+    }
+
+    /**
+     * Called after successfully adding a new record
+     * @param string $insertedId The ID of the newly inserted record
+     * @return void
+     */
+    protected function afterAdd(string $insertedId): void {
+        // Override in your class to add custom logic
+    }
+
+    /**
+     * Called before updating a record
+     * Override this method to modify data or perform checks before update
+     * @return bool Return false to cancel the update operation
+     */
+    protected function beforeUpdate(): bool {
+        // Override in your class to add custom logic
+        return true;
+    }
+
+    /**
+     * Called after successfully updating a record
+     * @return void
+     */
+    protected function afterUpdate(): void {
+        // Override in your class to add custom logic
+    }
+
+    /**
+     * Called before deleting a record
+     * Override this method to perform checks before delete
+     * @param int|string $id The ID of the record to be deleted
+     * @return bool Return false to cancel the delete operation
+     */
+    protected function beforeDelete(int|string $id): bool {
+        // Override in your class to add custom logic
+        return true;
+    }
+
+    /**
+     * Called after successfully deleting a record
+     * @param int|string $id The ID of the deleted record
+     * @return void
+     */
+    protected function afterDelete(int|string $id): void {
+        // Override in your class to add custom logic
+    }
+
+    /**
+     * =============================================================
+     * END LIFECYCLE HOOKS
+     * =============================================================
+     */
+
+    /**
      * Update method
      * Updates existing Record
      * @param  int|string $id primary key
      * @return mixed
      */
     public function update(int|string $id = "0"): mixed {
+        // Call beforeUpdate hook
+        if (!$this->beforeUpdate()) {
+            return false;
+        }
+
         $this->variables[$this->PRI] = (empty($this->variables[$this->PRI])) ? $id : $this->variables[$this->PRI];
         $fieldsvals = "";
         $columns = array_keys($this->variables);
@@ -555,7 +656,14 @@ class ' . $this->table . '{
         $fieldsvals = substr_replace($fieldsvals, "", -1);
         if (count($columns) > 1) {
             $sql = "UPDATE " . $this->table . " SET " . $fieldsvals . " WHERE " . $this->PRI . "= :" . $this->PRI;
-            return $this->db->query($sql, $this->variables);
+            $result = $this->db->query($sql, $this->variables);
+
+            // Call afterUpdate hook
+            if ($result) {
+                $this->afterUpdate();
+            }
+
+            return $result;
         }
         return null;
     }
@@ -566,6 +674,11 @@ class ' . $this->table . '{
      * @return  string|bool
      */
     public function add(): string|bool {
+        // Call beforeAdd hook
+        if (!$this->beforeAdd()) {
+            return false;
+        }
+
         $bindings = $this->variables;
         if (!empty($bindings)) {
             $fields = array_keys($bindings);
@@ -575,7 +688,12 @@ class ' . $this->table . '{
             return false;
         }
         $this->db->query($sql, $bindings);
-        return $this->db->lastInsertId();
+        $insertedId = $this->db->lastInsertId();
+
+        // Call afterAdd hook
+        $this->afterAdd($insertedId);
+
+        return $insertedId;
     }
 ';
 
@@ -618,15 +736,29 @@ class ' . $this->table . '{
     /**
      * delete method
      * Method Deleted record from table
-     * @param  int $id Records primary key
+     * @param  int|string $id Records primary key
      * @return mixed
      */
-    public function delete($id = "") {
+    public function delete(int|string $id = ""): mixed {
         $id = (empty($this->variables[$this->PRI])) ? $id : $this->variables[$this->PRI];
-        if (!empty($id)) :
+
+        if (!empty($id)) {
+            // Call beforeDelete hook
+            if (!$this->beforeDelete($id)) {
+                return false;
+            }
+
             $sql = "DELETE FROM " . $this->table . " WHERE " . $this->PRI . "= :" . $this->PRI . " LIMIT 1";
-            return $this->db->query($sql, array($this->PRI => $id));
-        endif;
+            $result = $this->db->query($sql, [$this->PRI => $id]);
+
+            // Call afterDelete hook
+            if ($result) {
+                $this->afterDelete($id);
+            }
+
+            return $result;
+        }
+        return null;
     }
 
     /**
