@@ -57,7 +57,43 @@ $generator = new ClassGenerator();
 // ... rest of your code
 ```
 
-## Generate classes via cli
+## Generate classes via CLI
+
+The new CLI uses Symfony Console for a modern experience with colors, progress bars, and interactive prompts.
+
+### Commands
+
+**Interactive mode** (select table from list):
+```sh
+php generate.php
+```
+
+**List all tables**:
+```sh
+php generate.php list-tables
+```
+
+**Generate specific table**:
+```sh
+php generate.php generate users
+```
+
+**Generate all tables**:
+```sh
+php generate.php generate --all
+```
+
+**Custom output directory**:
+```sh
+php generate.php generate users --output=app/Models
+```
+
+### Features
+- 🎨 Colored output for better readability
+- 📊 Progress bars for bulk generation
+- 🔍 Interactive table selection
+- ✅ Validation of table primary keys
+- 📋 Relationship detection display
 
 ![cli.php view](terminal.gif)
 
@@ -72,6 +108,15 @@ then open you browser and navigate to `http://localhost:8080`
 **Web interface will also generate class usage documentation**
 
 ## Features
+
+### Modern CLI with Symfony Console
+Professional command-line interface with rich features:
+- **Colored output**: Easy-to-read success/error messages
+- **Interactive prompts**: Select tables from a list
+- **Progress bars**: Visual feedback for bulk operations
+- **Table listing**: View all tables with status indicators
+- **Flexible options**: Generate single table, all tables, or custom output directory
+- **Helpful commands**: Built-in help and command descriptions
 
 ### Modern PHP 8.1+ Syntax
 Generated classes use cutting-edge PHP features:
