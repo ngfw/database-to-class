@@ -483,6 +483,36 @@ class ' . $this->table . '{
     private array $validationErrors = [];
 
     /**
+     * Query Builder - Holds WHERE clauses
+     * @var array
+     */
+    private array $queryWhere = [];
+
+    /**
+     * Query Builder - Holds WHERE clause bindings
+     * @var array
+     */
+    private array $queryBindings = [];
+
+    /**
+     * Query Builder - Holds ORDER BY clauses
+     * @var array
+     */
+    private array $queryOrderBy = [];
+
+    /**
+     * Query Builder - Holds query limit
+     * @var int|null
+     */
+    private ?int $queryLimit = null;
+
+    /**
+     * Query Builder - Holds query offset
+     * @var int|null
+     */
+    private ?int $queryOffset = null;
+
+    /**
      * Class construct function
      * calls Database class and set DB Object
      */
@@ -630,6 +660,238 @@ class ' . $this->table . '{
     /**
      * =============================================================
      * END LIFECYCLE HOOKS
+     * =============================================================
+     */
+
+    /**
+     * =============================================================
+     * QUERY BUILDER - Fluent Interface
+     * =============================================================
+     */
+
+    /**
+     * Add WHERE clause to query
+     * @param string $column Column name
+     * @param mixed $operator Operator or value if using = operator
+     * @param mixed $value Value to compare (optional if operator is the value)
+     * @param string $boolean AND or OR
+     * @return self
+     */
+    public function where(string $column, mixed $operator, mixed $value = null, string $boolean = "AND"): self {
+        // If only 2 arguments, assume = operator
+        if ($value === null) {
+            $value = $operator;
+            $operator = "=";
+        }
+
+        $placeholder = "qb_" . str_replace(".", "_", $column) . "_" . count($this->queryWhere);
+
+        $this->queryWhere[] = [
+            "column" => $column,
+            "operator" => $operator,
+            "placeholder" => $placeholder,
+            "boolean" => $boolean
+        ];
+
+        $this->queryBindings[$placeholder] = $value;
+
+        return $this;
+    }
+
+    /**
+     * Add OR WHERE clause to query
+     * @param string $column Column name
+     * @param mixed $operator Operator or value
+     * @param mixed $value Value to compare
+     * @return self
+     */
+    public function orWhere(string $column, mixed $operator, mixed $value = null): self {
+        return $this->where($column, $operator, $value, "OR");
+    }
+
+    /**
+     * Add WHERE IN clause to query
+     * @param string $column Column name
+     * @param array $values Array of values
+     * @return self
+     */
+    public function whereIn(string $column, array $values): self {
+        if (empty($values)) {
+            return $this;
+        }
+
+        $placeholders = [];
+        foreach ($values as $i => $val) {
+            $placeholder = "qb_in_" . str_replace(".", "_", $column) . "_" . $i;
+            $placeholders[] = ":" . $placeholder;
+            $this->queryBindings[$placeholder] = $val;
+        }
+
+        $this->queryWhere[] = [
+            "column" => $column,
+            "operator" => "IN",
+            "placeholders" => $placeholders,
+            "boolean" => "AND"
+        ];
+
+        return $this;
+    }
+
+    /**
+     * Add ORDER BY clause to query
+     * @param string $column Column name
+     * @param string $direction ASC or DESC
+     * @return self
+     */
+    public function orderBy(string $column, string $direction = "ASC"): self {
+        $direction = strtoupper($direction);
+        if (!in_array($direction, ["ASC", "DESC"])) {
+            $direction = "ASC";
+        }
+
+        $this->queryOrderBy[] = $column . " " . $direction;
+        return $this;
+    }
+
+    /**
+     * Set query limit
+     * @param int $limit Number of records to return
+     * @return self
+     */
+    public function take(int $limit): self {
+        $this->queryLimit = $limit;
+        return $this;
+    }
+
+    /**
+     * Set query offset
+     * @param int $offset Number of records to skip
+     * @return self
+     */
+    public function skip(int $offset): self {
+        $this->queryOffset = $offset;
+        return $this;
+    }
+
+    /**
+     * Execute query and get results
+     * @return array|false
+     */
+    public function get(): array|false {
+        $sql = "SELECT * FROM " . $this->table;
+
+        // Build WHERE clause
+        if (!empty($this->queryWhere)) {
+            $sql .= " WHERE ";
+            $whereParts = [];
+
+            foreach ($this->queryWhere as $i => $where) {
+                $part = "";
+
+                // Add boolean operator (AND/OR) before clause if not first
+                if ($i > 0) {
+                    $part .= " " . $where["boolean"] . " ";
+                }
+
+                if ($where["operator"] === "IN") {
+                    $part .= $where["column"] . " IN (" . implode(", ", $where["placeholders"]) . ")";
+                } else {
+                    $part .= $where["column"] . " " . $where["operator"] . " :" . $where["placeholder"];
+                }
+
+                $whereParts[] = $part;
+            }
+
+            $sql .= implode("", $whereParts);
+        }
+
+        // Build ORDER BY clause
+        if (!empty($this->queryOrderBy)) {
+            $sql .= " ORDER BY " . implode(", ", $this->queryOrderBy);
+        }
+
+        // Add LIMIT and OFFSET
+        if ($this->queryLimit !== null) {
+            $sql .= " LIMIT " . $this->queryLimit;
+        }
+
+        if ($this->queryOffset !== null) {
+            $sql .= " OFFSET " . $this->queryOffset;
+        }
+
+        $result = $this->db->query($sql, $this->queryBindings);
+
+        // Reset query builder
+        $this->resetQuery();
+
+        return $result;
+    }
+
+    /**
+     * Get first result
+     * @return array|false
+     */
+    public function first(): array|false {
+        $this->queryLimit = 1;
+        $results = $this->get();
+
+        return !empty($results) ? $results[0] : false;
+    }
+
+    /**
+     * Get count of records
+     * @return int
+     */
+    public function count(): int {
+        $sql = "SELECT COUNT(*) as total FROM " . $this->table;
+
+        // Build WHERE clause (same as get())
+        if (!empty($this->queryWhere)) {
+            $sql .= " WHERE ";
+            $whereParts = [];
+
+            foreach ($this->queryWhere as $i => $where) {
+                $part = "";
+
+                if ($i > 0) {
+                    $part .= " " . $where["boolean"] . " ";
+                }
+
+                if ($where["operator"] === "IN") {
+                    $part .= $where["column"] . " IN (" . implode(", ", $where["placeholders"]) . ")";
+                } else {
+                    $part .= $where["column"] . " " . $where["operator"] . " :" . $where["placeholder"];
+                }
+
+                $whereParts[] = $part;
+            }
+
+            $sql .= implode("", $whereParts);
+        }
+
+        $result = $this->db->single($sql, $this->queryBindings);
+
+        // Reset query builder
+        $this->resetQuery();
+
+        return (int) $result;
+    }
+
+    /**
+     * Reset query builder properties
+     * @return void
+     */
+    private function resetQuery(): void {
+        $this->queryWhere = [];
+        $this->queryBindings = [];
+        $this->queryOrderBy = [];
+        $this->queryLimit = null;
+        $this->queryOffset = null;
+    }
+
+    /**
+     * =============================================================
+     * END QUERY BUILDER
      * =============================================================
      */
 

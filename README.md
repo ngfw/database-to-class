@@ -126,6 +126,75 @@ Generated classes use cutting-edge PHP features:
 - Modern array syntax and null coalescing operators
 - Return type declarations on all methods
 
+### Query Builder - Fluent Interface
+Build complex queries with an elegant, chainable syntax:
+
+**Available Methods:**
+- `where($column, $operator, $value)` - Add WHERE clause
+- `orWhere($column, $operator, $value)` - Add OR WHERE clause
+- `whereIn($column, $values)` - Add WHERE IN clause
+- `orderBy($column, $direction)` - Add ORDER BY clause
+- `take($limit)` - Limit number of results
+- `skip($offset)` - Skip number of records
+- `get()` - Execute query and get all results
+- `first()` - Get first result only
+- `count()` - Count matching records
+
+**Examples:**
+
+```php
+<?php
+$user = include("GeneratedClasses/users.php");
+
+// Simple WHERE query
+$activeUsers = $user->where('status', 'active')->get();
+
+// Multiple WHERE conditions
+$results = $user->where('age', '>', 18)
+                ->where('status', 'active')
+                ->get();
+
+// OR conditions
+$results = $user->where('role', 'admin')
+                ->orWhere('role', 'moderator')
+                ->get();
+
+// WHERE IN
+$results = $user->whereIn('id', [1, 2, 3, 5, 8])->get();
+
+// ORDER BY and LIMIT
+$topUsers = $user->where('status', 'active')
+                 ->orderBy('points', 'DESC')
+                 ->take(10)
+                 ->get();
+
+// Pagination
+$page2 = $user->orderBy('created_at', 'DESC')
+              ->skip(20)
+              ->take(10)
+              ->get();
+
+// Get first result
+$admin = $user->where('role', 'admin')->first();
+
+// Count records
+$activeCount = $user->where('status', 'active')->count();
+
+// Complex queries
+$results = $user->where('age', '>=', 21)
+                ->where('status', 'active')
+                ->whereIn('country', ['US', 'CA', 'UK'])
+                ->orderBy('last_login', 'DESC')
+                ->take(50)
+                ->get();
+```
+
+**Supported Operators:**
+- `=`, `!=`, `<>` - Equality
+- `>`, `>=`, `<`, `<=` - Comparison
+- `LIKE` - Pattern matching
+- `IN` - List membership (via `whereIn()`)
+
 ### Lifecycle Hooks / Events
 Generated classes include lifecycle hooks that allow you to run custom logic before and after CRUD operations:
 
